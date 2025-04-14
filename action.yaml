@@ -25,6 +25,26 @@ inputs:
     description: 'The `xyz.radicle.project.name` found in your repository payload. You can see this by switching to the folder of your radicle project and running `rad inspect --payload`'
     required: true
     default: ''
+  sync-timeout:
+    description: 'Timeout for syncing node with a network.' 
+    required: false
+    default: 60
+  clone-timeout:
+    description: 'Timeout for fetching repository'
+    required: false
+    default: 180
+  connect-timeout:
+    description: 'Timeout for establishing connection'
+    required: false
+    default: 30
+  discover-timeout:
+    description: 'Timeout for node to discover content on the network'
+    required: false
+    default: 60
+  announce-timeout:
+    description: 'Timeout for node to announce changes to the network'
+    required: false
+    default: 30
 runs:
   using: "composite"
   steps:
@@ -67,47 +87,46 @@ runs:
         
         rad node start
         
-        echo "Waiting for node to start"
-        max_retry=30
+        echo "Waiting for node to start "
+        max_retry=${{ inputs.statup-timeout }}
         counter=0
         until echo '{"command": "sessions"}' | socat - UNIX-CONNECT:${{ github.workspace }}/.radicle/node/control.sock
         do
            sleep 1
            [[ counter -eq $max_retry ]] && echo "Failed" && break 
-           echo "Waiting for node to start... $counter"
+           echo -n "."
            counter=$((counter+1))
         done
 
     - name: Wait for Node to connect to peers
       shell: bash
       run: |          
-        max_retry=30
+        echo "Waiting for node to connect "
+        max_retry=${{ inputs.connect-timeout }}
         counter=0
         until echo '{"command": "sessions"}' | socat - UNIX-CONNECT:${{ github.workspace }}/.radicle/node/control.sock | grep '"state":{"connected"'
         do
            sleep 1
            [[ counter -eq $max_retry ]] && echo "Failed" && break 
-           echo "Waiting for node to connect... $counter"
+           echo -n "."
            counter=$((counter+1))
         done
         
         rad node status
         
-        echo "Now allow node to catch up with the network... Waiting:"
+        echo "Now allow node to catch up with the network "
         
-        for i in {1..60}; do
+        for i in {1..${{ inputs.discover-timeout }}}; do
           echo -n "."
           sleep 1
         done
         
-        echo  
-
-
+        echo
 
     - name: Clone from Radicle
       shell: bash
       run: |
-        rad clone "${{ inputs.radicle-repository-id }}" --no-confirm --timeout 180
+        rad clone "${{ inputs.radicle-repository-id }}" --no-confirm --timeout ${{ inputs.clone-timeout }}
 
     - name: Fetch code from GitHub
       shell: bash
@@ -131,7 +150,7 @@ runs:
         git push --force rad github/${{ github.ref_name }}:${{ github.ref_name }}
         
         echo "Sync with the network"
-        rad sync --announce --timeout 60 || true
+        rad sync --announce --timeout ${{ inputs.announce-timeout }} || true
         
         rad node stop
 
